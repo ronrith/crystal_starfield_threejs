@@ -1,0 +1,410 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Cosmic Nebula Simulation</title>
+    <style>
+        body { margin: 0; overflow: hidden; }
+        canvas { display: block; }
+        #controls {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            background: rgba(0, 0, 0, 0.7);
+            padding: 10px;
+            color: white;
+            font-family: Arial, sans-serif;
+        }
+        label { display: block; margin: 5px 0; }
+        span { margin-left: 5px; }
+    </style>
+</head>
+<body>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r134/three.min.js"></script>
+    <script src="https://unpkg.com/three@0.134.0/examples/js/postprocessing/EffectComposer.js"></script>
+    <script src="https://unpkg.com/three@0.134.0/examples/js/postprocessing/RenderPass.js"></script>
+    <script src="https://unpkg.com/three@0.134.0/examples/js/postprocessing/UnrealBloomPass.js"></script>
+    <script src="https://unpkg.com/three@0.134.0/examples/js/shaders/CopyShader.js"></script>
+    <script src="https://unpkg.com/three@0.134.0/examples/js/postprocessing/ShaderPass.js"></script>
+    <script src="https://unpkg.com/three@0.134.0/examples/js/shaders/LuminosityHighPassShader.js"></script>
+    
+    <div id="controls">
+        <div>
+            <label>Speed: <input type="range" id="speed" min="0" max="2" value="1" step="0.1"><span id="speedValue">1</span></label>
+        </div>
+        <div>
+            <label>Crystal Count: <input type="range" id="crystalCount" min="10" max="100" value="50" step="5"><span id="crystalCountValue">50</span></label>
+        </div>
+        <div>
+            <label>Crystal Size: <input type="range" id="crystalSize" min="0.2" max="1" value="0.5" step="0.1"><span id="crystalSizeValue">0.5</span></label>
+        </div>
+        <div>
+            <label>Lighting: <input type="range" id="lightIntensity" min="0" max="2" value="1" step="0.1"><span id="lightIntensityValue">1</span></label>
+        </div>
+        <div>
+            <label>Planet Bloom: <input type="range" id="planetBloomStrength" min="0" max="3" value="1" step="0.1"><span id="planetBloomStrengthValue">1</span></label>
+        </div>
+        <div>
+            <label>Crystal Bloom: <input type="range" id="crystalBloomStrength" min="0" max="3" value="1" step="0.1"><span id="crystalBloomStrengthValue">1</span></label>
+        </div>
+        <div>
+            <label>Camera Zoom: <input type="range" id="cameraZoom" min="10" max="100" value="30" step="1"><span id="cameraZoomValue">30</span></label>
+        </div>
+        <div>
+            <label>Camera Angle: <input type="range" id="cameraAngle" min="0" max="180" value="90" step="1"><span id="cameraAngleValue">90</span></label>
+        </div>
+        <div>
+            <label>Auto Rotate: <input type="checkbox" id="autoRotate" checked></label>
+        </div>
+        <div>
+            <label>Color: 
+                <select id="crystalColor">
+                    <option value="all">All</option>
+                    <option value="red">Red</option>
+                    <option value="blue">Blue</option>
+                    <option value="green">Green</option>
+                    <option value="white">White</option>
+                    <option value="yellow">Yellow</option>
+                    <option value="orange">Orange</option>
+                </select>
+            </label>
+        </div>
+        <div>
+            <label>Gravity Force: <input type="checkbox" id="gravity"></label>
+        </div>
+        <div>
+            <label>Star Count: <input type="range" id="starCount" min="100" max="1000" value="500" step="50"><span id="starCountValue">500</span></label>
+        </div>
+        <div>
+            <label>Star Speed: <input type="range" id="starSpeed" min="0" max="2" value="1" step="0.1"><span id="starSpeedValue">1</span></label>
+        </div>
+    </div>
+
+    <script>
+        const scene = new THREE.Scene(); 
+        const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+        const renderer = new THREE.WebGLRenderer();
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        document.body.appendChild(renderer.domElement);
+
+        const composer = new THREE.EffectComposer(renderer);
+        const renderPass = new THREE.RenderPass(scene, camera);
+        composer.addPass(renderPass);
+
+        const planetBloomPass = new THREE.UnrealBloomPass(
+            new THREE.Vector2(window.innerWidth, window.innerHeight),
+            1.0, 0.4, 0.7
+        );
+        composer.addPass(planetBloomPass);
+
+        const crystalBloomPass = new THREE.UnrealBloomPass(
+            new THREE.Vector2(window.innerWidth, window.innerHeight),
+            1.0, 0.4, 0.7
+        );
+        composer.addPass(crystalBloomPass);
+
+        const planetGeometry = new THREE.SphereGeometry(5, 32, 32);
+        const planetMaterial = new THREE.MeshPhongMaterial({
+            color: 0x00ffff,
+            emissive: 0xffffff,
+            emissiveIntensity: 1
+        });
+        const planet = new THREE.Mesh(planetGeometry, planetMaterial);
+        scene.add(planet);
+
+        const pointLight = new THREE.PointLight(0xffffff, 1, 100);
+        pointLight.position.set(20, 20, 20);
+        scene.add(pointLight);
+
+        const ambientLight = new THREE.AmbientLight(0x404040);
+        scene.add(ambientLight);
+
+        let crystals = [];
+        const crystalColors = {
+            red: 0xff0000,
+            blue: 0x0000ff,
+            green: 0x00ff00,
+            white: 0xffffff,
+            yellow: 0xffff00,
+            orange: 0xffa500
+        };
+
+        let speed = 1;
+        let crystalCount = 50;
+        let crystalSize = 0.5;
+        let lightIntensity = 1;
+        let planetBloomStrength = 1;
+        let crystalBloomStrength = 1;
+        let cameraZoom = 35;
+        let cameraAngle = 90;
+        let selectedColor = 'all';
+        let useGravity = false;
+        let starCount = 1000;
+        let starSpeed = 10;
+        let autoRotate = false;
+
+        function createCrystals() {
+            crystals.forEach(crystal => {
+                scene.remove(crystal);
+                scene.remove(crystal.userData.light);
+            });
+            crystals = [];
+
+            for (let i = 0; i < crystalCount; i++) {
+                const size = Math.random() * crystalSize + 0.2;
+                const geometry = new THREE.OctahedronGeometry(size);
+                
+                let color;
+                if (selectedColor === 'all') {
+                    const colorKeys = Object.keys(crystalColors);
+                    color = crystalColors[colorKeys[Math.floor(Math.random() * colorKeys.length)]];
+                } else {
+                    color = crystalColors[selectedColor];
+                }
+
+                const material = new THREE.MeshPhongMaterial({
+                    color: color,
+                    emissive: color,
+                    emissiveIntensity: 2.5,
+                    transparent: true,
+                    opacity: 0.9
+                });
+
+                const crystal = new THREE.Mesh(geometry, material);
+                
+                const crystalLight = new THREE.PointLight(color, 0.5, 5);
+                crystal.add(crystalLight);
+
+                const radius = 10 + Math.random() * 10;
+                const angle = Math.random() * Math.PI * 2;
+                crystal.position.set(
+                    Math.cos(angle) * radius,
+                    (Math.random() - 0.5) * 5,
+                    Math.sin(angle) * radius
+                );
+                
+                crystal.userData = {
+                    orbitRadius: radius,
+                    angle: angle,
+                    rotationSpeed: (Math.random() - 0.5) * 0.1,
+                    light: crystalLight
+                };
+
+                scene.add(crystal);
+                crystals.push(crystal);
+            }
+        }
+
+        let stars;
+        function createStars() {
+            if (stars) scene.remove(stars);
+            
+            const starGeometry = new THREE.BufferGeometry();
+            const positions = new Float32Array(starCount * 3);
+            for (let i = 0; i < starCount; i++) {
+                positions[i * 3] = (Math.random() - 0.5) * 200;
+                positions[i * 3 + 1] = (Math.random() - 0.5) * 200;
+                positions[i * 3 + 2] = (Math.random() - 0.5) * 200;
+            }
+            starGeometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+            
+            const starMaterial = new THREE.PointsMaterial({
+                color: 0xffffff,
+                size: 0.5,
+                transparent: true
+            });
+            
+            stars = new THREE.Points(starGeometry, starMaterial);
+            scene.add(stars);
+        }
+
+        camera.position.z = 30;
+
+        let isDragging = false;
+        let previousMousePosition = { x: 0, y: 0 };
+        const cameraRotationSpeed = 0.005;
+
+        document.addEventListener('mousedown', (e) => {
+            isDragging = true;
+        });
+
+        document.addEventListener('mouseup', () => {
+            isDragging = false;
+        });
+
+        document.addEventListener('mousemove', (e) => {
+            if (isDragging) {
+                const deltaMove = {
+                    x: e.clientX - previousMousePosition.x,
+                    y: e.clientY - previousMousePosition.y
+                };
+
+                const theta = deltaMove.x * cameraRotationSpeed;
+                const phi = deltaMove.y * cameraRotationSpeed;
+
+                let spherical = new THREE.Spherical();
+                spherical.setFromVector3(camera.position);
+
+                spherical.theta -= theta;
+                spherical.phi = Math.max(0.1, Math.min(Math.PI - 0.1, spherical.phi + phi));
+                spherical.radius = cameraZoom;
+
+                camera.position.setFromSpherical(spherical);
+                camera.lookAt(0, 0, 0);
+
+                previousMousePosition = { x: e.clientX, y: e.clientY };
+            } else {
+                previousMousePosition = { x: e.clientX, y: e.clientY };
+            }
+        });
+
+        document.getElementById('speed').addEventListener('input', (e) => {
+            speed = parseFloat(e.target.value);
+            document.getElementById('speedValue').textContent = speed;
+        });
+
+        document.getElementById('crystalCount').addEventListener('input', (e) => {
+            crystalCount = parseInt(e.target.value);
+            document.getElementById('crystalCountValue').textContent = crystalCount;
+            createCrystals();
+        });
+
+        document.getElementById('crystalSize').addEventListener('input', (e) => {
+            crystalSize = parseFloat(e.target.value);
+            document.getElementById('crystalSizeValue').textContent = crystalSize;
+            createCrystals();
+        });
+
+        document.getElementById('lightIntensity').addEventListener('input', (e) => {
+            lightIntensity = parseFloat(e.target.value);
+            document.getElementById('lightIntensityValue').textContent = lightIntensity;
+            pointLight.intensity = lightIntensity;
+            crystals.forEach(crystal => {
+                crystal.userData.light.intensity = lightIntensity * 0.5;
+            });
+        });
+
+        document.getElementById('planetBloomStrength').addEventListener('input', (e) => {
+            planetBloomStrength = parseFloat(e.target.value);
+            document.getElementById('planetBloomStrengthValue').textContent = planetBloomStrength;
+            planetBloomPass.strength = planetBloomStrength;
+        });
+
+        document.getElementById('crystalBloomStrength').addEventListener('input', (e) => {
+            crystalBloomStrength = parseFloat(e.target.value);
+            document.getElementById('crystalBloomStrengthValue').textContent = crystalBloomStrength;
+            crystalBloomPass.strength = crystalBloomStrength;
+        });
+
+        document.getElementById('cameraZoom').addEventListener('input', (e) => {
+            cameraZoom = parseFloat(e.target.value);
+            document.getElementById('cameraZoomValue').textContent = cameraZoom;
+            let spherical = new THREE.Spherical();
+            spherical.setFromVector3(camera.position);
+            spherical.radius = cameraZoom;
+            camera.position.setFromSpherical(spherical);
+            camera.lookAt(0, 0, 0);
+        });
+
+        document.getElementById('cameraAngle').addEventListener('input', (e) => {
+            cameraAngle = parseFloat(e.target.value);
+            document.getElementById('cameraAngleValue').textContent = cameraAngle;
+            let spherical = new THREE.Spherical();
+            spherical.setFromVector3(camera.position);
+            spherical.phi = THREE.MathUtils.degToRad(cameraAngle);
+            spherical.radius = cameraZoom;
+            camera.position.setFromSpherical(spherical);
+            camera.lookAt(0, 0, 0);
+        });
+
+        document.getElementById('autoRotate').addEventListener('change', (e) => {
+            autoRotate = e.target.checked;
+        });
+
+        document.getElementById('crystalColor').addEventListener('change', (e) => {
+            selectedColor = e.target.value;
+            createCrystals();
+        });
+
+        document.getElementById('gravity').addEventListener('change', (e) => {
+            useGravity = e.target.checked;
+        });
+
+        document.getElementById('starCount').addEventListener('input', (e) => {
+            starCount = parseInt(e.target.value);
+            document.getElementById('starCountValue').textContent = starCount;
+            createStars();
+        });
+
+        document.getElementById('starSpeed').addEventListener('input', (e) => {
+            starSpeed = parseFloat(e.target.value);
+            document.getElementById('starSpeedValue').textContent = starSpeed;
+        });
+
+        createCrystals();
+        createStars();
+
+        function animate() {
+            requestAnimationFrame(animate);
+
+            planet.rotation.y += 0.01;
+
+            if (autoRotate) {
+                let spherical = new THREE.Spherical();
+                spherical.setFromVector3(camera.position);
+                spherical.theta += 0.01;
+                spherical.phi = THREE.MathUtils.degToRad(cameraAngle);
+                spherical.radius = cameraZoom;
+                camera.position.setFromSpherical(spherical);
+                camera.lookAt(0, 0, 0);
+            }
+
+            crystals.forEach(crystal => {
+                crystal.userData.angle += 0.01 * speed;
+                
+                let newX = Math.cos(crystal.userData.angle) * crystal.userData.orbitRadius;
+                let newZ = Math.sin(crystal.userData.angle) * crystal.userData.orbitRadius;
+
+                if (useGravity) {
+                    const distance = crystal.position.distanceTo(planet.position);
+                    const gravityForce = 0.1 / (distance * distance);
+                    const direction = new THREE.Vector3()
+                        .subVectors(planet.position, crystal.position)
+                        .normalize();
+                    
+                    newX += direction.x * gravityForce * speed;
+                    newZ += direction.z * gravityForce * speed;
+                    crystal.userData.orbitRadius = Math.sqrt(newX * newX + newZ * newZ);
+                }
+
+                crystal.position.x = newX;
+                crystal.position.z = newZ;
+
+                crystal.rotation.x += crystal.userData.rotationSpeed * speed;
+                crystal.rotation.y += crystal.userData.rotationSpeed * speed;
+            });
+
+            const positions = stars.geometry.attributes.position.array;
+            for (let i = 0; i < starCount; i++) {
+                positions[i * 3 + 2] -= starSpeed * 0.1;
+                if (positions[i * 3 + 2] < -100) {
+                    positions[i * 3 + 2] = 100;
+                }
+            }
+            stars.geometry.attributes.position.needsUpdate = true;
+
+            composer.render();
+        }
+
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            composer.setSize(window.innerWidth, window.innerHeight);
+        });
+
+        animate();
+    </script>
+</body>
+</html>
